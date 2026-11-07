@@ -26,14 +26,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.widget.Button
 import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
+import androidx.compose.ui.platform.ComposeView
 import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -46,10 +40,8 @@ class MainActivity : Activity() {
     private val cccd = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     private val main = Handler(Looper.getMainLooper())
     private lateinit var adapter: BluetoothAdapter
-    private lateinit var status: TextView
-    private lateinit var sessionInfo: TextView
-    private lateinit var list: LinearLayout
-    private lateinit var recordButton: Button
+    private var statusText by androidx.compose.runtime.mutableStateOf("准备就绪 · 请在手环/手表上开启心率广播")
+    private var sessionText by androidx.compose.runtime.mutableStateOf("尚未开始记录")
     private val devices = linkedMapOf<String, DeviceRow>()
     private val gattMap = linkedMapOf<String, BluetoothGatt>()
     private val sessionSamples = linkedMapOf<String, MutableList<HeartSample>>()
@@ -57,13 +49,14 @@ class MainActivity : Activity() {
     private var landscape = true
     private var recording = false
     private var recordingStartedAt = 0L
+    private var uiRevision by androidx.compose.runtime.mutableIntStateOf(0)
     private val prefs by lazy { getSharedPreferences("athlete_names", MODE_PRIVATE) }
     private val clock = object : Runnable {
         override fun run() {
             devices.values.forEach { refreshRow(it) }
             if (recording) {
                 val seconds = ((System.currentTimeMillis() - recordingStartedAt) / 1000).coerceAtLeast(0)
-                sessionInfo.text = "记录中 · ${seconds / 60}分${seconds % 60}秒 · ${sessionSamples.values.sumOf { it.size }} 条数据"
+                uiRevision++
             }
             main.postDelayed(this, 1000)
         }
@@ -79,12 +72,6 @@ class MainActivity : Activity() {
         var updatedAt: Long = 0L,
         var rssi: Int = 0,
         val history: MutableList<Int> = mutableListOf(),
-        var card: LinearLayout? = null,
-        var title: TextView? = null,
-        var value: TextView? = null,
-        var detail: TextView? = null,
-        var action: Button? = null,
-        var chart: MiniChart? = null
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,44 +79,47 @@ class MainActivity : Activity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
         val manager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         adapter = manager.adapter
-        buildUi()
+        buildComposeUi()
         requestNeededPermissions()
         main.post(clock)
     }
 
-    private fun buildUi() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16, 10, 16, 8); setBackgroundColor(0xfff8fafc.toInt()) }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        header.addView(TextView(this).apply {
-            text = "多人心率监测"; textSize = 23f; setTextColor(0xff172033.toInt())
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(Button(this).apply { text = "扫描"; setOnClickListener { if (scanning) stopScan() else startScan() } })
-        header.addView(Button(this).apply {
-            text = "横/竖屏"
-            setOnClickListener {
-                landscape = !landscape
-                requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    private fun buildComposeUi() {
+        setContentView(ComposeView(this).apply {
+            setContent {
+                androidx.compose.material3.MaterialTheme {
+                    HeartRateDashboard(
+                        revision = uiRevision,
+                        status = statusText,
+                        session = sessionText,
+                        scanning = scanning,
+                        recording = recording,
+                        devices = devices.map { (id, row) ->
+                            val age = if (row.updatedAt == 0L) -1 else ((System.currentTimeMillis() - row.updatedAt) / 1000).toInt()
+                            val live = when {
+                                !row.connected -> "未连接"
+                                age < 0 -> "已连接 · 等待心率数据"
+                                age > 10 -> "数据中断 ${age}s · 检查广播/距离"
+                                else -> "实时接收 · ${age}s 前更新"
+                            }
+                            HeartRateDeviceUi(id, row.alias, row.name, row.bpm, row.connected,
+                                "$live · RSSI ${row.rssi} dBm", row.history.toList())
+                        },
+                        onScan = { if (scanning) stopScan() else startScan() },
+                        onRecord = { toggleRecording() },
+                        onExport = { exportCsv() },
+                        onDisconnectAll = { disconnectAll() },
+                        onConnect = { id -> if (gattMap.containsKey(id)) disconnect(id) else connect(id) },
+                        onRename = { id -> editAlias(id) },
+                        onRemove = { id -> disconnect(id); devices.remove(id); refreshAll(); statusText = "已移除设备" },
+                        onOrientation = {
+                            landscape = !landscape
+                            requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        }
+                    )
+                }
             }
         })
-        root.addView(header)
-        status = TextView(this).apply {
-            text = "准备就绪 · 请在手环/手表上开启心率广播"
-            textSize = 13f; setTextColor(0xff475569.toInt()); setPadding(2, 5, 2, 4)
-        }
-        root.addView(status)
-        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        recordButton = Button(this).apply { text = "开始记录"; setOnClickListener { toggleRecording() } }
-        controls.addView(recordButton)
-        controls.addView(Button(this).apply { text = "导出 CSV"; setOnClickListener { exportCsv() } })
-        controls.addView(Button(this).apply { text = "全部断开"; setOnClickListener { disconnectAll() } })
-        root.addView(controls)
-        sessionInfo = TextView(this).apply { text = "尚未开始记录"; textSize = 12f; setTextColor(0xff64748b.toInt()); setPadding(4, 2, 4, 8) }
-        root.addView(sessionInfo)
-        val scroll = ScrollView(this)
-        list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroll.addView(list)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(root)
     }
 
     private fun requestNeededPermissions() {
@@ -236,20 +226,10 @@ class MainActivity : Activity() {
     }
 
     private fun refreshRow(row: DeviceRow) {
-        row.title?.text = row.alias
-        row.value?.text = if (row.bpm > 0 && row.connected) "${row.bpm}" else "--"
-        val age = if (row.updatedAt == 0L) -1 else ((System.currentTimeMillis() - row.updatedAt) / 1000).toInt()
-        val signal = if (row.rssi == 0) "RSSI --" else "RSSI ${row.rssi} dBm"
-        val live = when {
-            !row.connected -> "未连接"
-            age < 0 -> "已连接 · 等待心率数据"
-            age > 10 -> "数据中断 ${age}s · 检查广播/距离"
-            else -> "实时接收 · ${age}s 前更新"
-        }
-        row.detail?.text = "$live   ·   $signal   ·   ${row.name}"
-        row.action?.text = if (row.connected) "断开" else "连接"
-        row.chart?.setValues(row.history.toList())
+                uiRevision++
     }
+
+    private fun refreshAll() { uiRevision++ }
 
     private fun connect(id: String) {
         if (!hasPermissions()) { requestNeededPermissions(); return }
@@ -339,13 +319,11 @@ class MainActivity : Activity() {
             recordingStartedAt = System.currentTimeMillis()
             sessionSamples.clear()
             devices.keys.forEach { sessionSamples[it] = mutableListOf() }
-            recordButton.text = "停止记录"
-            sessionInfo.text = "记录中 · 0分0秒"
+            uiRevision++
             Toast.makeText(this, "已开始记录本次训练", Toast.LENGTH_SHORT).show()
         } else {
             recording = false
-            recordButton.text = "开始记录"
-            sessionInfo.text = "记录结束 · ${sessionSamples.values.sumOf { it.size }} 条数据，可导出 CSV"
+            uiRevision++
             Toast.makeText(this, "训练记录已暂存，可导出 CSV", Toast.LENGTH_SHORT).show()
         }
     }
@@ -384,10 +362,9 @@ class MainActivity : Activity() {
 
     private fun disconnectAll() {
         gattMap.keys.toList().forEach { disconnect(it) }
-        status.text = "已断开所有设备"
+        status.text = "已断开所有设备"; uiRevision++
     }
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
         main.removeCallbacks(clock)
@@ -396,24 +373,4 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
-    private class MiniChart(context: android.content.Context) : View(context) {
-        private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xff0d9488.toInt(); strokeWidth = 3f; style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x220d9488; style = Paint.Style.FILL }
-        private var values: List<Int> = emptyList()
-        fun setValues(data: List<Int>) { values = data; invalidate() }
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            if (values.size < 2) return
-            val min = (values.minOrNull() ?: 0).toFloat() - 5f
-            val max = (values.maxOrNull() ?: 1).toFloat() + 5f
-            val range = (max - min).coerceAtLeast(1f)
-            val path = Path()
-            values.forEachIndexed { index, value ->
-                val x = index.toFloat() / (values.size - 1) * width
-                val y = height - ((value - min) / range * height)
-                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            canvas.drawPath(path, line)
-        }
-    }
 }
