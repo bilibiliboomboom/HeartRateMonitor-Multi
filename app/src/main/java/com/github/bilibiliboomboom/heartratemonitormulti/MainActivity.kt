@@ -1,7 +1,6 @@
 package com.github.bilibiliboomboom.heartratemonitormulti
 
 import android.Manifest
-import android.app.Activity
 import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -24,6 +23,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import android.widget.EditText
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -33,7 +33,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private val hrService = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")
     private val hrMeasurement = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
     private val cccd = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
