@@ -53,6 +53,7 @@ class MainActivity : Activity() {
             devices.values.forEach { refreshRow(it) }
             if (recording) {
                 val seconds = ((System.currentTimeMillis() - recordingStartedAt) / 1000).coerceAtLeast(0)
+                sessionText = "记录中 · ${seconds / 60}分${seconds % 60}秒 · ${sessionSamples.values.sumOf { it.size }} 条数据"
                 uiRevision++
             }
             main.postDelayed(this, 1000)
@@ -154,22 +155,22 @@ class MainActivity : Activity() {
 
     private fun startScan() {
         if (!hasPermissions()) { requestNeededPermissions(); return }
-        if (!adapter.isEnabled) { status.text = "请先打开手机蓝牙"; return }
+        if (!adapter.isEnabled) { statusText = "请先打开手机蓝牙"; return }
         try {
             val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(hrService)).build())
             val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
             adapter.bluetoothLeScanner.startScan(filters, settings, scanCallback)
             scanning = true
-            status.text = "正在扫描标准 BLE 心率广播设备…"
+            statusText = "正在扫描标准 BLE 心率广播设备…"
             main.postDelayed({ if (scanning) stopScan() }, 20_000)
-        } catch (_: SecurityException) { status.text = "缺少蓝牙权限" }
+        } catch (_: SecurityException) { statusText = "缺少蓝牙权限" }
     }
 
     private fun stopScan() {
         if (!hasPermissions()) return
         runCatching { adapter.bluetoothLeScanner.stopScan(scanCallback) }
         scanning = false
-        status.text = "扫描结束 · 已发现 ${devices.size} 台设备"
+        statusText = "扫描结束 · 已发现 ${devices.size} 台设备"
     }
 
     private fun editAlias(id: String) {
@@ -197,12 +198,12 @@ class MainActivity : Activity() {
         val row = devices[id] ?: return
         if (gattMap.containsKey(id)) return
         try {
-            status.text = "正在连接：${row.alias}"
+            statusText = "正在连接：${row.alias}"
             val gatt = if (Build.VERSION.SDK_INT >= 23)
                 row.device.connectGatt(this, false, callback(id), BluetoothDevice.TRANSPORT_LE)
             else row.device.connectGatt(this, false, callback(id))
             gattMap[id] = gatt
-        } catch (_: SecurityException) { status.text = "蓝牙连接权限不足" }
+        } catch (_: SecurityException) { statusText = "蓝牙连接权限不足" }
     }
 
     private fun callback(id: String) = object : BluetoothGattCallback() {
@@ -221,7 +222,7 @@ class MainActivity : Activity() {
         override fun onServicesDiscovered(gatt: BluetoothGatt, statusCode: Int) {
             val characteristic = gatt.getService(hrService)?.getCharacteristic(hrMeasurement)
             if (statusCode != BluetoothGatt.GATT_SUCCESS || characteristic == null) {
-                main.post { status.text = "设备不支持标准心率特征：${devices[id]?.alias}" }
+                main.post { statusText = "设备不支持标准心率特征：${devices[id]?.alias}" }
                 return
             }
             try {
@@ -270,7 +271,7 @@ class MainActivity : Activity() {
                 }
                 refreshRow(row)
             }
-            status.text = "正在接收心率 · 已连接 ${gattMap.size} 台设备"
+            statusText = "正在接收心率 · 已连接 ${gattMap.size} 台设备"
         }
     }
 
@@ -323,7 +324,7 @@ class MainActivity : Activity() {
 
     private fun disconnectAll() {
         gattMap.keys.toList().forEach { disconnect(it) }
-        status.text = "已断开所有设备"; uiRevision++
+        statusText = "已断开所有设备"; uiRevision++
     }
 
 
