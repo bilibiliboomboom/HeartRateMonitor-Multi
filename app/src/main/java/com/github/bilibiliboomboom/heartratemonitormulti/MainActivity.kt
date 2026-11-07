@@ -15,6 +15,7 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.pm.PackageManager
+import android.content.pm.ActivityInfo
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -40,6 +41,7 @@ class MainActivity : Activity() {
     private val devices = linkedMapOf<String, DeviceRow>()
     private val gattMap = linkedMapOf<String, BluetoothGatt>()
     private var scanning = false
+    private var landscape = true
 
     private data class DeviceRow(
         val device: BluetoothDevice,
@@ -66,6 +68,7 @@ class MainActivity : Activity() {
         header.addView(TextView(this).apply { text = "多人心率监测"; textSize = 24f; setTextColor(0xff172033.toInt()) },
             LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(Button(this).apply { text = "扫描设备"; setOnClickListener { if (scanning) stopScan() else startScan() } })
+        header.addView(Button(this).apply { text = "切换竖屏"; setOnClickListener { landscape = !landscape; requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT; text = if (landscape) "切换竖屏" else "切换横屏" } })
         header.addView(Button(this).apply { text = "全部断开"; setOnClickListener { disconnectAll() } })
         root.addView(header)
         status = TextView(this).apply { text = "准备就绪 · 请先在每只手环上开启心率广播"; textSize = 14f; setPadding(0, 8, 0, 12) }
