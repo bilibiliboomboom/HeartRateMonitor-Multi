@@ -2,6 +2,7 @@ package com.github.bilibiliboomboom.heartratemonitormulti
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
@@ -14,8 +15,12 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ActivityInfo
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -23,11 +28,16 @@ import android.os.Looper
 import android.os.ParcelUuid
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 class MainActivity : Activity() {
@@ -37,42 +47,84 @@ class MainActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var adapter: BluetoothAdapter
     private lateinit var status: TextView
+    private lateinit var sessionInfo: TextView
     private lateinit var list: LinearLayout
+    private lateinit var recordButton: Button
     private val devices = linkedMapOf<String, DeviceRow>()
     private val gattMap = linkedMapOf<String, BluetoothGatt>()
+    private val sessionSamples = linkedMapOf<String, MutableList<HeartSample>>()
     private var scanning = false
     private var landscape = true
+    private var recording = false
+    private var recordingStartedAt = 0L
+    private val prefs by lazy { getSharedPreferences("athlete_names", MODE_PRIVATE) }
+    private val clock = object : Runnable {
+        override fun run() {
+            devices.values.forEach { refreshRow(it) }
+            if (recording) {
+                val seconds = ((System.currentTimeMillis() - recordingStartedAt) / 1000).coerceAtLeast(0)
+                sessionInfo.text = "记录中 · ${seconds / 60}分${seconds % 60}秒 · ${sessionSamples.values.sumOf { it.size }} 条数据"
+            }
+            main.postDelayed(this, 1000)
+        }
+    }
 
+    private data class HeartSample(val time: Long, val bpm: Int)
     private data class DeviceRow(
         val device: BluetoothDevice,
         var name: String,
+        var alias: String,
         var bpm: Int = 0,
         var connected: Boolean = false,
         var updatedAt: Long = 0L,
+        var rssi: Int = 0,
+        val history: MutableList<Int> = mutableListOf(),
         var card: LinearLayout? = null,
+        var title: TextView? = null,
         var value: TextView? = null,
-        var action: Button? = null
+        var detail: TextView? = null,
+        var action: Button? = null,
+        var chart: MiniChart? = null
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
         val manager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         adapter = manager.adapter
         buildUi()
         requestNeededPermissions()
+        main.post(clock)
     }
 
     private fun buildUi() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 16, 20, 12) }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16, 10, 16, 8); setBackgroundColor(0xfff8fafc.toInt()) }
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        header.addView(TextView(this).apply { text = "多人心率监测"; textSize = 24f; setTextColor(0xff172033.toInt()) },
-            LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(Button(this).apply { text = "扫描设备"; setOnClickListener { if (scanning) stopScan() else startScan() } })
-        header.addView(Button(this).apply { text = "切换竖屏"; setOnClickListener { landscape = !landscape; requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT; text = if (landscape) "切换竖屏" else "切换横屏" } })
-        header.addView(Button(this).apply { text = "全部断开"; setOnClickListener { disconnectAll() } })
+        header.addView(TextView(this).apply {
+            text = "多人心率监测"; textSize = 23f; setTextColor(0xff172033.toInt())
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(Button(this).apply { text = "扫描"; setOnClickListener { if (scanning) stopScan() else startScan() } })
+        header.addView(Button(this).apply {
+            text = "横/竖屏"
+            setOnClickListener {
+                landscape = !landscape
+                requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+        })
         root.addView(header)
-        status = TextView(this).apply { text = "准备就绪 · 请先在每只手环上开启心率广播"; textSize = 14f; setPadding(0, 8, 0, 12) }
+        status = TextView(this).apply {
+            text = "准备就绪 · 请在手环/手表上开启心率广播"
+            textSize = 13f; setTextColor(0xff475569.toInt()); setPadding(2, 5, 2, 4)
+        }
         root.addView(status)
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        recordButton = Button(this).apply { text = "开始记录"; setOnClickListener { toggleRecording() } }
+        controls.addView(recordButton)
+        controls.addView(Button(this).apply { text = "导出 CSV"; setOnClickListener { exportCsv() } })
+        controls.addView(Button(this).apply { text = "全部断开"; setOnClickListener { disconnectAll() } })
+        root.addView(controls)
+        sessionInfo = TextView(this).apply { text = "尚未开始记录"; textSize = 12f; setTextColor(0xff64748b.toInt()); setPadding(4, 2, 4, 8) }
+        root.addView(sessionInfo)
         val scroll = ScrollView(this)
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(list)
@@ -96,10 +148,15 @@ class MainActivity : Activity() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
             val id = device.address
-            val name = result.scanRecord?.deviceName ?: runCatching { device.name }.getOrNull() ?: "未知设备"
+            val discoveredName = result.scanRecord?.deviceName ?: runCatching { device.name }.getOrNull() ?: "未知设备"
             main.post {
-                val row = devices[id] ?: DeviceRow(device, name).also { devices[id] = it; addDeviceCard(id, it) }
-                if (name.isNotBlank()) row.name = name
+                val row = devices[id] ?: DeviceRow(
+                    device = device,
+                    name = discoveredName,
+                    alias = prefs.getString(id, null)?.takeIf { it.isNotBlank() } ?: discoveredName
+                ).also { devices[id] = it; addDeviceCard(id, it) }
+                if (discoveredName.isNotBlank()) row.name = discoveredName
+                row.rssi = result.rssi
                 refreshRow(row)
             }
         }
@@ -116,9 +173,9 @@ class MainActivity : Activity() {
             val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
             adapter.bluetoothLeScanner.startScan(filters, settings, scanCallback)
             scanning = true
-            status.text = "正在扫描心率广播设备…"
+            status.text = "正在扫描标准 BLE 心率广播设备…"
             main.postDelayed({ if (scanning) stopScan() }, 20_000)
-        } catch (e: SecurityException) { status.text = "缺少蓝牙权限" }
+        } catch (_: SecurityException) { status.text = "缺少蓝牙权限" }
     }
 
     private fun stopScan() {
@@ -130,33 +187,68 @@ class MainActivity : Activity() {
 
     private fun addDeviceCard(id: String, row: DeviceRow) {
         val card = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(14, 8, 14, 8)
-            setBackgroundColor(0xfff1f5f9.toInt())
+            orientation = LinearLayout.VERTICAL
+            setPadding(14, 10, 14, 10)
+            setBackgroundColor(0xffffffff.toInt())
+            elevation = 2f
         }
-        val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        info.addView(TextView(this).apply { text = row.name; textSize = 17f; setTextColor(0xff172033.toInt()) })
-        val value = TextView(this).apply { text = "未连接"; textSize = 14f; setTextColor(0xff475569.toInt()) }
-        info.addView(value)
-        card.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val title = TextView(this).apply {
+            text = row.alias; textSize = 18f; setTextColor(0xff172033.toInt())
+            setOnClickListener { editAlias(id) }
+            setOnLongClickListener { editAlias(id); true }
+        }
+        top.addView(title, LinearLayout.LayoutParams(0, -2, 1f))
+        val value = TextView(this).apply { text = "-- BPM"; textSize = 25f; setTextColor(0xff0f766e.toInt()) }
+        top.addView(value)
+        card.addView(top)
+        val detail = TextView(this).apply { textSize = 12f; setTextColor(0xff64748b.toInt()); setPadding(0, 3, 0, 3) }
+        card.addView(detail)
+        val chart = MiniChart(this)
+        card.addView(chart, LinearLayout.LayoutParams(-1, dp(42)))
+        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        bottom.addView(TextView(this).apply {
+            text = "点击姓名可修改"; textSize = 11f; setTextColor(0xff94a3b8.toInt())
+        }, LinearLayout.LayoutParams(0, -2, 1f))
         val action = Button(this).apply { text = "连接"; setOnClickListener { if (row.connected) disconnect(id) else connect(id) } }
-        card.addView(action)
-        list.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 8 })
-        row.card = card; row.value = value; row.action = action
+        bottom.addView(action)
+        bottom.addView(Button(this).apply { text = "移除"; setOnClickListener { disconnect(id); devices.remove(id); list.removeView(card); status.text = "已移除设备" } })
+        card.addView(bottom)
+        list.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(9) })
+        row.card = card; row.title = title; row.value = value; row.detail = detail; row.action = action; row.chart = chart
+        refreshRow(row)
+    }
+
+    private fun editAlias(id: String) {
+        val row = devices[id] ?: return
+        val input = EditText(this).apply { setSingleLine(true); setText(row.alias); hint = "例如：Andy、1号泳道" }
+        AlertDialog.Builder(this)
+            .setTitle("设置运动员名称")
+            .setMessage("设备：${row.name}")
+            .setView(input)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("保存") { _, _ ->
+                val alias = input.text.toString().trim().ifBlank { row.name }
+                row.alias = alias
+                prefs.edit().putString(id, alias).apply()
+                refreshRow(row)
+            }.show()
     }
 
     private fun refreshRow(row: DeviceRow) {
-        row.card?.let { card ->
-            val title = (card.getChildAt(0) as LinearLayout).getChildAt(0) as TextView
-            title.text = row.name
+        row.title?.text = row.alias
+        row.value?.text = if (row.bpm > 0 && row.connected) "${row.bpm}" else "--"
+        val age = if (row.updatedAt == 0L) -1 else ((System.currentTimeMillis() - row.updatedAt) / 1000).toInt()
+        val signal = if (row.rssi == 0) "RSSI --" else "RSSI ${row.rssi} dBm"
+        val live = when {
+            !row.connected -> "未连接"
+            age < 0 -> "已连接 · 等待心率数据"
+            age > 10 -> "数据中断 ${age}s · 检查广播/距离"
+            else -> "实时接收 · ${age}s 前更新"
         }
-        row.value?.text = when {
-            row.connected && row.bpm > 0 -> "${row.bpm} BPM · 已连接"
-            row.connected -> "已连接 · 等待心率数据"
-            else -> "未连接"
-        }
+        row.detail?.text = "$live   ·   $signal   ·   ${row.name}"
         row.action?.text = if (row.connected) "断开" else "连接"
+        row.chart?.setValues(row.history.toList())
     }
 
     private fun connect(id: String) {
@@ -164,12 +256,12 @@ class MainActivity : Activity() {
         val row = devices[id] ?: return
         if (gattMap.containsKey(id)) return
         try {
-            status.text = "正在连接：${row.name}"
+            status.text = "正在连接：${row.alias}"
             val gatt = if (Build.VERSION.SDK_INT >= 23)
                 row.device.connectGatt(this, false, callback(id), BluetoothDevice.TRANSPORT_LE)
             else row.device.connectGatt(this, false, callback(id))
             gattMap[id] = gatt
-        } catch (e: SecurityException) { status.text = "蓝牙连接权限不足" }
+        } catch (_: SecurityException) { status.text = "蓝牙连接权限不足" }
     }
 
     private fun callback(id: String) = object : BluetoothGattCallback() {
@@ -188,7 +280,7 @@ class MainActivity : Activity() {
         override fun onServicesDiscovered(gatt: BluetoothGatt, statusCode: Int) {
             val characteristic = gatt.getService(hrService)?.getCharacteristic(hrMeasurement)
             if (statusCode != BluetoothGatt.GATT_SUCCESS || characteristic == null) {
-                main.post { status.text = "设备不支持标准心率特征：${devices[id]?.name}" }
+                main.post { status.text = "设备不支持标准心率特征：${devices[id]?.alias}" }
                 return
             }
             try {
@@ -223,10 +315,62 @@ class MainActivity : Activity() {
             if (data.size < 3) return
             (data[1].toInt() and 0xff) or ((data[2].toInt() and 0xff) shl 8)
         } else data[1].toInt() and 0xff
+        if (bpm !in 1..250) return
         main.post {
-            devices[id]?.let { it.bpm = bpm; it.updatedAt = System.currentTimeMillis(); refreshRow(it) }
+            devices[id]?.let { row ->
+                row.bpm = bpm
+                row.updatedAt = System.currentTimeMillis()
+                row.history.add(bpm)
+                if (row.history.size > 60) row.history.removeAt(0)
+                if (recording) {
+                    val samples = sessionSamples.getOrPut(id) { mutableListOf() }
+                    samples.add(HeartSample(row.updatedAt, bpm))
+                    if (samples.size > 20_000) samples.removeAt(0)
+                }
+                refreshRow(row)
+            }
             status.text = "正在接收心率 · 已连接 ${gattMap.size} 台设备"
         }
+    }
+
+    private fun toggleRecording() {
+        if (!recording) {
+            recording = true
+            recordingStartedAt = System.currentTimeMillis()
+            sessionSamples.clear()
+            devices.keys.forEach { sessionSamples[it] = mutableListOf() }
+            recordButton.text = "停止记录"
+            sessionInfo.text = "记录中 · 0分0秒"
+            Toast.makeText(this, "已开始记录本次训练", Toast.LENGTH_SHORT).show()
+        } else {
+            recording = false
+            recordButton.text = "开始记录"
+            sessionInfo.text = "记录结束 · ${sessionSamples.values.sumOf { it.size }} 条数据，可导出 CSV"
+            Toast.makeText(this, "训练记录已暂存，可导出 CSV", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun exportCsv() {
+        if (sessionSamples.values.all { it.isEmpty() }) {
+            Toast.makeText(this, "暂无记录，请先开始记录并接收心率", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+        val csv = buildString {
+            append("timestamp,device_name,device_address,heart_rate_bpm\n")
+            sessionSamples.forEach { (id, samples) ->
+                val name = devices[id]?.alias ?: prefs.getString(id, "Unknown") ?: "Unknown"
+                samples.forEach { sample ->
+                    append("\"${formatter.format(Date(sample.time))}\",\"${name.replace("\"", "\"\"")}\",\"$id\",${sample.bpm}\n")
+                }
+            }
+        }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_SUBJECT, "多人心率训练记录")
+            putExtra(Intent.EXTRA_TEXT, csv)
+        }
+        startActivity(Intent.createChooser(send, "导出/分享训练 CSV"))
     }
 
     private fun disconnect(id: String) {
@@ -238,11 +382,38 @@ class MainActivity : Activity() {
         devices[id]?.let { it.connected = false; it.bpm = 0; refreshRow(it) }
     }
 
-    private fun disconnectAll() { gattMap.keys.toList().forEach { disconnect(it) }; status.text = "已断开所有设备" }
+    private fun disconnectAll() {
+        gattMap.keys.toList().forEach { disconnect(it) }
+        status.text = "已断开所有设备"
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
+        main.removeCallbacks(clock)
         stopScan()
         disconnectAll()
         super.onDestroy()
+    }
+
+    private class MiniChart(context: android.content.Context) : View(context) {
+        private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xff0d9488.toInt(); strokeWidth = 3f; style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x220d9488; style = Paint.Style.FILL }
+        private var values: List<Int> = emptyList()
+        fun setValues(data: List<Int>) { values = data; invalidate() }
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            if (values.size < 2) return
+            val min = (values.minOrNull() ?: 0).toFloat() - 5f
+            val max = (values.maxOrNull() ?: 1).toFloat() + 5f
+            val range = (max - min).coerceAtLeast(1f)
+            val path = Path()
+            values.forEachIndexed { index, value ->
+                val x = index.toFloat() / (values.size - 1) * width
+                val y = height - ((value - min) / range * height)
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            canvas.drawPath(path, line)
+        }
     }
 }
