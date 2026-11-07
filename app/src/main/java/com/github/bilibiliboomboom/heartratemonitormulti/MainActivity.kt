@@ -18,9 +18,6 @@ import android.bluetooth.le.ScanSettings
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ActivityInfo
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Path
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -144,14 +141,14 @@ class MainActivity : Activity() {
                     device = device,
                     name = discoveredName,
                     alias = prefs.getString(id, null)?.takeIf { it.isNotBlank() } ?: discoveredName
-                ).also { devices[id] = it; addDeviceCard(id, it) }
+                ).also { devices[id] = it }
                 if (discoveredName.isNotBlank()) row.name = discoveredName
                 row.rssi = result.rssi
                 refreshRow(row)
             }
         }
         override fun onScanFailed(errorCode: Int) {
-            main.post { scanning = false; status.text = "扫描失败：$errorCode" }
+            main.post { scanning = false; statusText = "扫描失败：$errorCode" }
         }
     }
 
@@ -175,40 +172,6 @@ class MainActivity : Activity() {
         status.text = "扫描结束 · 已发现 ${devices.size} 台设备"
     }
 
-    private fun addDeviceCard(id: String, row: DeviceRow) {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(14, 10, 14, 10)
-            setBackgroundColor(0xffffffff.toInt())
-            elevation = 2f
-        }
-        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val title = TextView(this).apply {
-            text = row.alias; textSize = 18f; setTextColor(0xff172033.toInt())
-            setOnClickListener { editAlias(id) }
-            setOnLongClickListener { editAlias(id); true }
-        }
-        top.addView(title, LinearLayout.LayoutParams(0, -2, 1f))
-        val value = TextView(this).apply { text = "-- BPM"; textSize = 25f; setTextColor(0xff0f766e.toInt()) }
-        top.addView(value)
-        card.addView(top)
-        val detail = TextView(this).apply { textSize = 12f; setTextColor(0xff64748b.toInt()); setPadding(0, 3, 0, 3) }
-        card.addView(detail)
-        val chart = MiniChart(this)
-        card.addView(chart, LinearLayout.LayoutParams(-1, dp(42)))
-        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        bottom.addView(TextView(this).apply {
-            text = "点击姓名可修改"; textSize = 11f; setTextColor(0xff94a3b8.toInt())
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        val action = Button(this).apply { text = "连接"; setOnClickListener { if (row.connected) disconnect(id) else connect(id) } }
-        bottom.addView(action)
-        bottom.addView(Button(this).apply { text = "移除"; setOnClickListener { disconnect(id); devices.remove(id); list.removeView(card); status.text = "已移除设备" } })
-        card.addView(bottom)
-        list.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(9) })
-        row.card = card; row.title = title; row.value = value; row.detail = detail; row.action = action; row.chart = chart
-        refreshRow(row)
-    }
-
     private fun editAlias(id: String) {
         val row = devices[id] ?: return
         val input = EditText(this).apply { setSingleLine(true); setText(row.alias); hint = "例如：Andy、1号泳道" }
@@ -225,9 +188,7 @@ class MainActivity : Activity() {
             }.show()
     }
 
-    private fun refreshRow(row: DeviceRow) {
-                uiRevision++
-    }
+    private fun refreshRow(row: DeviceRow) { uiRevision++ }
 
     private fun refreshAll() { uiRevision++ }
 
