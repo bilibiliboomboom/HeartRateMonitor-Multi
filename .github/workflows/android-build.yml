@@ -1,7 +1,9 @@
 name: Android APK
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - feature/tablet-polar-team-ui
   workflow_dispatch:
 permissions:
   contents: read
