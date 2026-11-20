@@ -35,6 +35,7 @@ class PolarDiagnosticsActivity : Activity() {
     private val connected = linkedSetOf<String>()
     private val latestHr = linkedMapOf<String, Int>()
     private val batteries = linkedMapOf<String, Int>()
+    private val rssiValues = linkedMapOf<String, Int>()
     private val rows = linkedMapOf<String, TextView>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -155,6 +156,7 @@ class PolarDiagnosticsActivity : Activity() {
     }
 
     private fun addOrRefreshDevice(id: String, name: String, rssi: Int) {
+        rssiValues[id] = rssi
         var row = rows[id]
         if (row == null) {
             row = TextView(this).apply {
@@ -179,7 +181,7 @@ class PolarDiagnosticsActivity : Activity() {
 
     private fun refreshDevice(id: String) {
         val name = found[id] ?: runCatching { api.getDeviceName(id) }.getOrNull() ?: id
-        rows[id]?.text = deviceSummary(id, name, runCatching { api.getRSSIValue(id) }.getOrDefault(-1))
+        rows[id]?.text = deviceSummary(id, name, rssiValues[id] ?: -1)
     }
 
     private fun deviceSummary(id: String, name: String, rssi: Int): String {
