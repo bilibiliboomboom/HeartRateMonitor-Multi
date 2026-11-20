@@ -10,8 +10,17 @@ android {
         applicationId = "com.github.bilibiliboomboom.heartratemonitormulti"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
+    }
+    flavorDimensions += "transport"
+    productFlavors {
+        create("standard") { dimension = "transport" }
+        create("polar") {
+            dimension = "transport"
+            minSdk = 33
+            applicationIdSuffix = ".polar"
+        }
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -20,7 +29,6 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
-
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")
@@ -30,4 +38,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    add("polarImplementation", "com.github.polarofficial:polar-ble-sdk:8.4.0")
+    add("polarImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 }

@@ -22,3 +22,11 @@ Android 多设备 BLE 心率监测器，面向泳队/团体训练场景。
 
 ## Build
 GitHub Actions 在 push 到 main 后自动构建 Debug APK。
+
+
+## Development variants
+
+- `standardDebug`: generic BLE heart-rate receiver, Android 8+ (minSdk 26).
+- `polarDebug`: Polar BLE SDK 8.4.0 diagnostic build, Android 13+ (minSdk 33). It adds a separate launcher item, **Polar 设备连接测试**, for discovery, connecting multiple sensors, live HR, battery and RSSI checks.
+
+The Polar screen is currently a transport validation tool, not yet merged into the athlete dashboard. Test with one, then two, then five or more physical sensors before using it in training. The app is tablet-first and locked to landscape. Polar SDK attribution is in `app/src/polar/assets/THIRD_PARTY_NOTICES.txt`.

@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -37,7 +36,7 @@ fun HeartRateDashboard(
     revision: Int, status: String, session: String, scanning: Boolean, recording: Boolean,
     devices: List<HeartRateDeviceUi>, onScan: () -> Unit, onRecord: () -> Unit,
     onExport: () -> Unit, onDisconnectAll: () -> Unit, onConnect: (String) -> Unit,
-    onRename: (String) -> Unit, onRemove: (String) -> Unit, onOrientation: () -> Unit
+    onRename: (String) -> Unit, onRemove: (String) -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
     Scaffold(
@@ -49,7 +48,6 @@ fun HeartRateDashboard(
                     Text("MULTI HEART RATE MONITOR", fontSize = 10.sp, color = cs.onSurfaceVariant, letterSpacing = 1.2.sp)
                 } },
                 actions = {
-                    IconButton(onClick = onOrientation) { Icon(Icons.Default.Tune, "横竖屏设置") }
                     FilledTonalIconButton(onClick = onScan) {
                         Icon(if (scanning) Icons.Default.Stop else Icons.Default.Refresh, if (scanning) "停止扫描" else "扫描设备")
                     }

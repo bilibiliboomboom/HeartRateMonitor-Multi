@@ -1,0 +1,13 @@
+Polar BLE SDK attribution
+
+This application includes the Polar BLE SDK Android library:
+com.github.polarofficial:polar-ble-sdk:8.4.0
+
+Copyright © 2019 Polar Electro Oy. All rights reserved.
+
+The Polar BLE SDK is provided under Polar Electro Oy's SOFTWARE DEVELOPMENT KIT LIMITED LICENSE AGREEMENT.
+The SDK is not licensed under MIT or Apache-2.0. Use and redistribution are subject to the full agreement.
+The original license and third-party software notices are published in the official SDK repository:
+https://github.com/polarofficial/polar-ble-sdk
+
+This is an independent third-party application and is not endorsed by or affiliated with Polar Electro Oy.
