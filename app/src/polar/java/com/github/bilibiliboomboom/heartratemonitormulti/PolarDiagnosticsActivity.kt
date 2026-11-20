@@ -72,6 +72,18 @@ class PolarDiagnosticsActivity : Activity() {
                     refreshDevice(identifier)
                 }
             }
+            override fun disInformationReceived(
+                identifier: String,
+                disInfo: com.polar.androidcommunications.api.ble.model.DisInfo
+            ) {
+                // Device information is optional for this heart-rate diagnostics screen.
+            }
+            override fun htsNotificationReceived(
+                identifier: String,
+                data: com.polar.sdk.api.model.PolarHealthThermometerData
+            ) {
+                // Health thermometer data is not used by this app.
+            }
             override fun batteryLevelReceived(identifier: String, level: Int) {
                 runOnUiThread {
                     batteries[identifier] = level
