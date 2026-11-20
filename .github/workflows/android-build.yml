@@ -4,6 +4,8 @@ on:
     branches:
       - main
       - feature/tablet-polar-team-ui
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 permissions:
   contents: read
