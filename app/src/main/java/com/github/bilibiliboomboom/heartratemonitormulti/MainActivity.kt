@@ -45,7 +45,6 @@ class MainActivity : ComponentActivity() {
     private val gattMap = linkedMapOf<String, BluetoothGatt>()
     private val sessionSamples = linkedMapOf<String, MutableList<HeartSample>>()
     private var scanning = false
-    private var landscape = true
     private var recording = false
     private var recordingStartedAt = 0L
     private var uiRevision by androidx.compose.runtime.mutableIntStateOf(0)
@@ -76,7 +75,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         val manager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         adapter = manager.adapter
         buildComposeUi()
@@ -111,11 +110,7 @@ class MainActivity : ComponentActivity() {
                         onDisconnectAll = { disconnectAll() },
                         onConnect = { id -> if (gattMap.containsKey(id)) disconnect(id) else connect(id) },
                         onRename = { id -> editAlias(id) },
-                        onRemove = { id -> disconnect(id); devices.remove(id); refreshAll(); statusText = "已移除设备" },
-                        onOrientation = {
-                            landscape = !landscape
-                            requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                        }
+                        onRemove = { id -> disconnect(id); devices.remove(id); refreshAll(); statusText = "已移除设备" }
                     )
                 }
             }
